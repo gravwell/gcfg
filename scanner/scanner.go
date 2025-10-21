@@ -141,11 +141,8 @@ func (s *Scanner) scanComment() string {
 }
 
 func isLetter(ch rune) bool {
-	// special case, handle _ more inline with regex \w rules not unicode letter rules
-	if ch == '_' {
-		return true
-	}
-	return 'a' <= ch && ch <= 'z' || 'A' <= ch && ch <= 'Z' || ch >= 0x80 && unicode.IsLetter(ch)
+	// _ special case, handle more inline with regex \w rules not unicode letter rules
+	return ch == '_' || 'a' <= ch && ch <= 'z' || 'A' <= ch && ch <= 'Z' || ch >= 0x80 && unicode.IsLetter(ch)
 }
 
 func isDigit(ch rune) bool {

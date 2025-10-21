@@ -98,6 +98,15 @@ type cNumS2 struct {
 }
 type cNumS3 struct{ FileMode os.FileMode }
 
+type cIdxer struct {
+	Section cIdxerS1
+}
+
+type cIdxerS1 struct {
+	Idxer
+	Vals map[Idx]*[]string
+}
+
 type readtest struct {
 	gcfg string
 	exp  interface{}
@@ -114,6 +123,7 @@ var readtests = []struct {
 	{"[section]\nname=value", &cBasic{Section: cBasicS1{Name: "value"}}, true},
 	// hyphen in name
 	{"[hyphen-in-section]\nhyphen-in-name=value", &cBasic{Hyphen_In_Section: cBasicS2{Hyphen_In_Name: "value"}}, true},
+	{"[hyphen-in-section]\nhyphen_in_name=value", &cBasic{Hyphen_In_Section: cBasicS2{Hyphen_In_Name: "value"}}, true},
 	// quoted string value
 	{"[section]\nname=\"\"", &cBasic{Section: cBasicS1{Name: ""}}, true},
 	{"[section]\nname=\" \"", &cBasic{Section: cBasicS1{Name: " "}}, true},
@@ -269,6 +279,10 @@ var readtests = []struct {
 }}, {"type:textUnmarshaler", []readtest{
 	{"[section]\nname=value", &cTxUnm{Section: cTxUnmS1{Name: "value"}}, true},
 	{"[section]\nname=error", &cTxUnm{}, false},
+}}, {"type:idxer", []readtest{
+	{"[section]\nname=value", &cIdxer{Section: cIdxerS1{Idxer: Idxer{names: map[string]struct{}{"name": {}}}, Vals: map[Idx]*[]string{Idx{n: "name"}: {"value"}}}}, true},
+	{"[section]\nname=value\nother_name=other_value", &cIdxer{cIdxerS1{Idxer: Idxer{names: map[string]struct{}{"name": {}, "other_name": {}}}, Vals: map[Idx]*[]string{Idx{n: "name"}: {"value"}, Idx{n: "other_name"}: {"other_value"}}}}, true},
+	{"[section]\nother_name=other_value\nother_name=value", &cIdxer{cIdxerS1{Idxer: Idxer{names: map[string]struct{}{"other_name": {}}}, Vals: map[Idx]*[]string{Idx{n: "other_name"}: {"other_value", "value"}}}}, true},
 }},
 }
 
