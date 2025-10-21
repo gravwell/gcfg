@@ -55,6 +55,7 @@ var tokens = [...]elt{
 	{token.IDENT, "foo६४", literal, "", ""},
 	{token.IDENT, "bar９８７６", literal, "", ""},
 	{token.IDENT, "foo-bar", literal, "", ""},
+	{token.IDENT, "foo_bar", literal, "", ""},
 	{token.IDENT, "foo", literal, ";\n", ""},
 	// String literals (subsection names)
 	{token.STRING, `"foobar"`, literal, "", ""},
@@ -433,7 +434,6 @@ var errors = []struct {
 }{
 	{"\a", token.ILLEGAL, 0, "illegal character U+0007"},
 	{"/", token.ILLEGAL, 0, "illegal character U+002F '/'"},
-	{"_", token.ILLEGAL, 0, "illegal character U+005F '_'"},
 	{`…`, token.ILLEGAL, 0, "illegal character U+2026 '…'"},
 	{`""`, token.STRING, 0, ""},
 	{`"`, token.STRING, 0, "string not terminated"},
