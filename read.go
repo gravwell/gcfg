@@ -73,6 +73,7 @@ func readIntoPass(c *warnings.Collector, config interface{}, fset *token.FileSet
 		case token.EOL, token.COMMENT:
 			pos, tok, lit = s.Scan()
 		case token.LBRACK:
+			s.IdentMode("default")
 			pos, tok, lit = s.Scan()
 			if errs.Len() > 0 {
 				if err := c.Collect(errs.Err()); err != nil {
@@ -124,14 +125,21 @@ func readIntoPass(c *warnings.Collector, config interface{}, fset *token.FileSet
 			// If a section/subsection header was found, ensure a
 			// container object is created, even if there are no
 			// variables further down.
-
-			err := set(c, config, sect, sectsub, "", true, "", subsectPass)
+			t, err := set(c, config, sect, sectsub, "", true, "", subsectPass)
 			if err != nil {
 				err = errfn(err.Error())
+				if err = c.Collect(err); err != nil {
+					return err
+				}
 			}
-			err = c.Collect(err)
-			if err != nil {
-				return err
+			if t.identMode != "" {
+				err = s.IdentMode(t.identMode)
+				if err != nil {
+					err = errfn(err.Error())
+					if err = c.Collect(err); err != nil {
+						return err
+					}
+				}
 			}
 		case token.IDENT:
 			if sect == "" {
@@ -175,7 +183,7 @@ func readIntoPass(c *warnings.Collector, config interface{}, fset *token.FileSet
 					}
 				}
 			}
-			err := set(c, config, sect, sectsub, n, blank, v, subsectPass)
+			_, err := set(c, config, sect, sectsub, n, blank, v, subsectPass)
 			if err != nil {
 				return errfn(err.Error())
 			}
