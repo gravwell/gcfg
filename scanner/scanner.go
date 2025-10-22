@@ -43,6 +43,7 @@ type Scanner struct {
 	rdOffset   int  // reading offset (position after current character)
 	lineOffset int  // current line offset
 	nextVal    bool // next token is expected to be a value
+	isLetter   func(rune) bool
 
 	// public state - ok to modify
 	ErrorCount int // number of errors encountered
@@ -112,6 +113,7 @@ func (s *Scanner) Init(file *token.File, src []byte, err ErrorHandler, mode Mode
 	s.src = src
 	s.err = err
 	s.mode = mode
+	s.isLetter = isLetter
 
 	s.ch = ' '
 	s.offset = 0
@@ -144,6 +146,10 @@ func (s *Scanner) scanComment() string {
 	return string(s.src[offs:s.offset])
 }
 
+func isLetterWithRegex(ch rune) bool {
+	return ch == '_' || 'a' <= ch && ch <= 'z' || 'A' <= ch && ch <= 'Z' || ch >= 0x80 && unicode.IsLetter(ch)
+}
+
 func isLetter(ch rune) bool {
 	return 'a' <= ch && ch <= 'z' || 'A' <= ch && ch <= 'Z' || ch >= 0x80 && unicode.IsLetter(ch)
 }
@@ -154,7 +160,7 @@ func isDigit(ch rune) bool {
 
 func (s *Scanner) scanIdentifier() string {
 	offs := s.offset
-	for isLetter(s.ch) || isDigit(s.ch) || s.ch == '-' {
+	for s.isLetter(s.ch) || isDigit(s.ch) || s.ch == '-' {
 		s.next()
 	}
 	return string(s.src[offs:s.offset])
@@ -340,7 +346,7 @@ scanAgain:
 		lit = s.scanValString()
 		tok = token.STRING
 		s.nextVal = false
-	case isLetter(ch):
+	case s.isLetter(ch):
 		lit = s.scanIdentifier()
 		tok = token.IDENT
 	default:
@@ -377,4 +383,16 @@ scanAgain:
 	}
 
 	return
+}
+
+func (s *Scanner) IdentMode(mode string) error {
+	switch mode {
+	case "default":
+		s.isLetter = isLetter
+	case "regex":
+		s.isLetter = isLetterWithRegex
+	default:
+		return fmt.Errorf("invalid ident (%s) provided", mode)
+	}
+	return nil
 }

@@ -22,8 +22,10 @@ var (
 )
 
 type tag struct {
-	ident   string
-	intMode string
+	ident       string
+	intMode     string
+	sectionMode string
+	identMode   string
 }
 
 func newTag(ts string) tag {
@@ -33,6 +35,12 @@ func newTag(ts string) tag {
 	for _, tse := range s[1:] {
 		if strings.HasPrefix(tse, "int=") {
 			t.intMode = tse[len("int="):]
+		}
+		if strings.HasPrefix(tse, "section=") {
+			t.sectionMode = tse[len("section="):]
+		}
+		if strings.HasPrefix(tse, "ident=") {
+			t.identMode = tse[len("ident="):]
 		}
 	}
 	return t
@@ -276,22 +284,22 @@ func newValue(c *warnings.Collector, sect string, vCfg reflect.Value,
 }
 
 func set(c *warnings.Collector, cfg interface{}, sect, sub, name string,
-	blank bool, value string, subsectPass bool) error {
+	blank bool, value string, subsectPass bool) (tag, error) {
 	//
 	vPCfg := reflect.ValueOf(cfg)
 	if vPCfg.Kind() != reflect.Ptr || vPCfg.Elem().Kind() != reflect.Struct {
-		return fmt.Errorf("config must be a pointer to a struct")
+		return tag{}, fmt.Errorf("config must be a pointer to a struct")
 	}
 	vCfg := vPCfg.Elem()
-	vSect, _ := fieldFold(vCfg, sect)
+	vSect, st := fieldFold(vCfg, sect)
 	l := loc{section: sect}
 	if !vSect.IsValid() {
 		err := extraData{loc: l, name: name}
-		return c.Collect(err)
+		return st, c.Collect(err)
 	}
-	isSubsect := vSect.Kind() == reflect.Map
+	isSubsect := vSect.Kind() == reflect.Map && st.sectionMode != "raw"
 	if subsectPass != isSubsect {
-		return nil
+		return st, nil
 	}
 	if isSubsect {
 		l.subsection = &sub
@@ -299,7 +307,7 @@ func set(c *warnings.Collector, cfg interface{}, sect, sub, name string,
 		if vst.Key().Kind() != reflect.String ||
 			vst.Elem().Kind() != reflect.Ptr ||
 			vst.Elem().Elem().Kind() != reflect.Struct {
-			return fmt.Errorf("map field for section must have string keys and "+
+			return st, fmt.Errorf("map field for section must have string keys and "+
 				" pointer-to-struct values: section %q", sect)
 		}
 		if vSect.IsNil() {
@@ -312,28 +320,49 @@ func set(c *warnings.Collector, cfg interface{}, sect, sub, name string,
 			var err error
 			pv, err = newValue(c, sect, vCfg, vType)
 			if err != nil {
-				return err
+				return st, err
 			}
 			vSect.SetMapIndex(k, pv)
 		}
 		vSect = pv.Elem()
-	} else if vSect.Kind() != reflect.Struct {
-		return fmt.Errorf("field for section must be a map or a struct: "+
+	} else if vSect.Kind() != reflect.Struct && vSect.Kind() != reflect.Map {
+		return st, fmt.Errorf("field for section must be a map or a struct: "+
 			"section %q", sect)
 	} else if sub != "" {
-		return c.Collect(extraData{loc: l, name: name})
+		return st, c.Collect(extraData{loc: l, name: name})
+	} else if st.sectionMode == "raw" {
+		vst := vSect.Type()
+		if vst.Key().Kind() != reflect.String ||
+			vst.Elem().Kind() != reflect.String {
+			return st, fmt.Errorf("map for raw section must have string keys and "+
+				"string values: section %q", sect)
+		}
+		if vSect.IsNil() {
+			vSect.Set(reflect.MakeMap(vSect.Type()))
+		}
 	}
 	// Empty name is a special value, meaning that only the
 	// section/subsection object is to be created, with no values set.
 	if name == "" {
-		return nil
+		return st, nil
+	}
+	// sectionMode of raw is a special value to shortcut all folding of the name of the field.
+	if st.sectionMode == "raw" {
+		var err error
+		vv := vSect.MapIndex(reflect.ValueOf(name))
+		if !vv.IsValid() {
+			vSect.SetMapIndex(reflect.ValueOf(name), reflect.ValueOf(value))
+		} else {
+			err = locErr{msg: "duplicate key in raw section", loc: l}
+		}
+		return st, err
 	}
 	vVar, t, err := idxFieldFold(vSect, name)
 	if err != nil {
-		return c.Collect(extraData{loc: l, name: err.Error()})
+		return st, c.Collect(extraData{loc: l, name: err.Error()})
 	}
 	if !vVar.IsValid() {
-		return c.Collect(extraData{loc: l, name: name})
+		return st, c.Collect(extraData{loc: l, name: name})
 	}
 	// vVal is either single-valued var, or newly allocated value within multi-valued var
 	var vVal reflect.Value
@@ -348,7 +377,7 @@ func set(c *warnings.Collector, cfg interface{}, sect, sub, name string,
 	}
 	if isMulti && blank {
 		vVar.Set(reflect.Zero(vVar.Type()))
-		return nil
+		return st, nil
 	}
 	if isMulti {
 		vVal = reflect.New(vVar.Type().Elem()).Elem()
@@ -376,12 +405,12 @@ func set(c *warnings.Collector, cfg interface{}, sect, sub, name string,
 			break
 		}
 		if err != errUnsupportedType {
-			return locErr{msg: err.Error(), loc: l}
+			return st, locErr{msg: err.Error(), loc: l}
 		}
 	}
 	if !ok {
 		// in case all setters returned errUnsupportedType
-		return locErr{msg: err.Error(), loc: l}
+		return st, locErr{msg: err.Error(), loc: l}
 	}
 	if isNew { // set reference if it was dereferenced and newly allocated
 		vVal.Set(vAddr)
@@ -389,5 +418,5 @@ func set(c *warnings.Collector, cfg interface{}, sect, sub, name string,
 	if isMulti { // append if multi-valued
 		vVar.Set(reflect.Append(vVar, vVal))
 	}
-	return nil
+	return st, nil
 }
