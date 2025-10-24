@@ -98,6 +98,10 @@ type cNumS2 struct {
 }
 type cNumS3 struct{ FileMode os.FileMode }
 
+type cMap struct {
+	Section map[string]string `gcfg:",section=raw,ident=regex"`
+}
+
 type readtest struct {
 	gcfg string
 	exp  interface{}
@@ -203,6 +207,7 @@ var readtests = []struct {
 	{"\n[section]\nnonexistent=value", &cBasic{}, false},
 	// hyphen in name
 	{"[hyphen-in-section]\nhyphen-in-name=value", &cBasic{Hyphen_In_Section: cBasicS2{Hyphen_In_Name: "value"}}, true},
+	{"[hyphen-in-section]\nhyphen_in_name=value", &cBasic{}, false},
 	// ignore unexported fields
 	{"[unexported]\nname=value", &cBasic{}, false},
 	{"[exported]\nunexported=value", &cBasic{}, false},
@@ -269,6 +274,14 @@ var readtests = []struct {
 }}, {"type:textUnmarshaler", []readtest{
 	{"[section]\nname=value", &cTxUnm{Section: cTxUnmS1{Name: "value"}}, true},
 	{"[section]\nname=error", &cTxUnm{}, false},
+}}, {"type:rawMap", []readtest{
+	{"[section]\nname=value", &cMap{Section: map[string]string{"name": "value"}}, true},
+	{"[section]\nname-key=value", &cMap{Section: map[string]string{"name-key": "value"}}, true},
+	{"[section]\nname_key=value", &cMap{Section: map[string]string{"name_key": "value"}}, true},
+	{"[section]\nname-key=dash\nname_key=value", &cMap{Section: map[string]string{"name-key": "dash", "name_key": "value"}}, true},
+	{"[section]\n", &cMap{Section: map[string]string{}}, true},
+	{"[section]\nname-key=value\nname-key=wack", &cMap{}, false},
+	{"[section \"sub\"]\nname-key=value", &cMap{}, false},
 }},
 }
 
@@ -444,6 +457,12 @@ var panictests = []struct {
 }{
 	{"top", struct{}{}, "[section]\nname=value"},
 	{"section", &struct{ Section string }{}, "[section]\nname=value"},
+	{"rawsection", &struct {
+		Section string `gcfg:",section=raw"`
+	}{}, "[section]\nname=value"},
+	{"rawsectionmap", &struct {
+		Section map[string]int `gcfg:",section=raw"`
+	}{}, "[section]\nname=value"},
 	{"subsection", &struct{ Section map[string]string }{}, "[section \"subsection\"]\nname=value"},
 }
 

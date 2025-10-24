@@ -8,7 +8,6 @@
 //
 // Note that the API for the scanner package may change to accommodate new
 // features or implementation changes in gcfg.
-//
 package scanner
 
 import (
@@ -25,13 +24,11 @@ import (
 // encountered and a handler was installed, the handler is called with a
 // position and an error message. The position points to the beginning of
 // the offending token.
-//
 type ErrorHandler func(pos token.Position, msg string)
 
 // A Scanner holds the scanner's internal state while processing
 // a given text.  It can be allocated as part of another data
 // structure but must be initialized via Init before use.
-//
 type Scanner struct {
 	// immutable state
 	file *token.File  // source file handle
@@ -46,6 +43,7 @@ type Scanner struct {
 	rdOffset   int  // reading offset (position after current character)
 	lineOffset int  // current line offset
 	nextVal    bool // next token is expected to be a value
+	isLetter   func(rune) bool
 
 	// public state - ok to modify
 	ErrorCount int // number of errors encountered
@@ -53,7 +51,6 @@ type Scanner struct {
 
 // Read the next Unicode char into s.ch.
 // s.ch < 0 means end-of-file.
-//
 func (s *Scanner) next() {
 	if s.rdOffset < len(s.src) {
 		s.offset = s.rdOffset
@@ -86,7 +83,6 @@ func (s *Scanner) next() {
 
 // A mode value is a set of flags (or 0).
 // They control scanner behavior.
-//
 type Mode uint
 
 const (
@@ -107,7 +103,6 @@ const (
 //
 // Note that Init may call err if there is an error in the first character
 // of the file.
-//
 func (s *Scanner) Init(file *token.File, src []byte, err ErrorHandler, mode Mode) {
 	// Explicitly initialize all fields since a scanner may be reused.
 	if file.Size() != len(src) {
@@ -118,6 +113,7 @@ func (s *Scanner) Init(file *token.File, src []byte, err ErrorHandler, mode Mode
 	s.src = src
 	s.err = err
 	s.mode = mode
+	s.isLetter = isLetter
 
 	s.ch = ' '
 	s.offset = 0
@@ -146,6 +142,10 @@ func (s *Scanner) scanComment() string {
 	return string(s.src[offs:s.offset])
 }
 
+func isLetterWithRegex(ch rune) bool {
+	return ch == '_' || 'a' <= ch && ch <= 'z' || 'A' <= ch && ch <= 'Z' || ch >= 0x80 && unicode.IsLetter(ch)
+}
+
 func isLetter(ch rune) bool {
 	return 'a' <= ch && ch <= 'z' || 'A' <= ch && ch <= 'Z' || ch >= 0x80 && unicode.IsLetter(ch)
 }
@@ -156,7 +156,7 @@ func isDigit(ch rune) bool {
 
 func (s *Scanner) scanIdentifier() string {
 	offs := s.offset
-	for isLetter(s.ch) || isDigit(s.ch) || s.ch == '-' {
+	for s.isLetter(s.ch) || isDigit(s.ch) || s.ch == '-' {
 		s.next()
 	}
 	return string(s.src[offs:s.offset])
@@ -326,7 +326,6 @@ func (s *Scanner) skipWhitespace() {
 // Scan adds line information to the file added to the file
 // set with Init. Token positions are relative to that file
 // and thus relative to the file set.
-//
 func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 scanAgain:
 	s.skipWhitespace()
@@ -340,7 +339,7 @@ scanAgain:
 		lit = s.scanValString()
 		tok = token.STRING
 		s.nextVal = false
-	case isLetter(ch):
+	case s.isLetter(ch):
 		lit = s.scanIdentifier()
 		tok = token.IDENT
 	default:
@@ -376,4 +375,16 @@ scanAgain:
 	}
 
 	return
+}
+
+func (s *Scanner) IdentMode(mode string) error {
+	switch mode {
+	case "default":
+		s.isLetter = isLetter
+	case "regex":
+		s.isLetter = isLetterWithRegex
+	default:
+		return fmt.Errorf("invalid ident (%s) provided", mode)
+	}
+	return nil
 }
