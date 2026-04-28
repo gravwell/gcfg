@@ -2,9 +2,9 @@ package gcfg
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"strings"
 
@@ -13,12 +13,17 @@ import (
 	"gopkg.in/warnings.v0"
 )
 
+var (
+	ErrInvalidEscapeSequence = errors.New("invalid escape sequence")
+	ErrMissingEndQuote       = errors.New("missing end quote")
+)
+
 var unescape = map[rune]rune{'\\': '\\', '"': '"', 'n': '\n', 't': '\t'}
 var utf8Bom = []byte("\ufeff")
 
-// no error: invalid literals should be caught by scanner
-func unquote(s string) string {
+func unquote(s string) (string, error) {
 	u, q, esc := make([]rune, 0, len(s)), false, false
+
 	for _, c := range s {
 		if esc {
 			uc, ok := unescape[c]
@@ -30,7 +35,7 @@ func unquote(s string) string {
 				esc = false
 				continue
 			}
-			panic("invalid escape sequence")
+			return "", ErrInvalidEscapeSequence
 		}
 		switch c {
 		case '"':
@@ -41,13 +46,16 @@ func unquote(s string) string {
 			u = append(u, c)
 		}
 	}
+
 	if q {
-		panic("missing end quote")
+		return "", ErrMissingEndQuote
 	}
+
 	if esc {
-		panic("invalid escape sequence")
+		return "", ErrInvalidEscapeSequence
 	}
-	return string(u)
+
+	return string(u), nil
 }
 
 func readIntoPass(c *warnings.Collector, config interface{}, fset *token.FileSet,
@@ -92,7 +100,13 @@ func readIntoPass(c *warnings.Collector, config interface{}, fset *token.FileSet
 				}
 			}
 			if tok == token.STRING {
-				sectsub = unquote(lit)
+				var err error
+				sectsub, err = unquote(lit)
+				if err != nil {
+					if err := c.Collect(errfn(err.Error())); err != nil {
+						return err
+					}
+				}
 				if sectsub == "" {
 					if err := c.Collect(errfn("empty subsection name")); err != nil {
 						return err
@@ -115,7 +129,7 @@ func readIntoPass(c *warnings.Collector, config interface{}, fset *token.FileSet
 					return err
 				}
 			}
-			pos, tok, lit = s.Scan()
+			pos, tok, _ = s.Scan()
 			if tok != token.EOL && tok != token.EOF && tok != token.COMMENT {
 				if err := c.Collect(errfn("expected EOL, EOF, or comment")); err != nil {
 					return err
@@ -162,7 +176,15 @@ func readIntoPass(c *warnings.Collector, config interface{}, fset *token.FileSet
 						return err
 					}
 				}
-				v = unquote(lit)
+
+				var err error
+				v, err = unquote(lit)
+				if err != nil {
+					if err := c.Collect(errfn(err.Error())); err != nil {
+						return err
+					}
+				}
+
 				pos, tok, lit = s.Scan()
 				if errs.Len() > 0 {
 					if err := c.Collect(errs.Err()); err != nil {
@@ -210,7 +232,7 @@ func readInto(config interface{}, fset *token.FileSet, file *token.File,
 // ReadInto reads gcfg formatted data from reader and sets the values into the
 // corresponding fields in config.
 func ReadInto(config interface{}, reader io.Reader) error {
-	src, err := ioutil.ReadAll(reader)
+	src, err := io.ReadAll(reader)
 	if err != nil {
 		return err
 	}
@@ -231,13 +253,17 @@ func ReadStringInto(config interface{}, str string) error {
 //
 // For compatibility with files created on Windows, the ReadFileInto skips a
 // single leading UTF8 BOM sequence if it exists.
-func ReadFileInto(config interface{}, filename string) error {
+func ReadFileInto(config interface{}, filename string) (err error) {
 	f, err := os.Open(filename)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	src, err := ioutil.ReadAll(f)
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+	src, err := io.ReadAll(f)
 	if err != nil {
 		return err
 	}
