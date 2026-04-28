@@ -274,8 +274,9 @@ func TestScanValStringBacktickWonkyQuotesDoubleEscaped(t *testing.T) {
 	s.Init(f, []byte(src), nil, 0)
 	s.Scan()              // =
 	_, _, lit := s.Scan() // value
-	if lit != `"v\"a\"\\"lue"` {
-		t.Errorf("bad literal: got %s, expected %s", lit, `"v\"a\"\\"lue"`)
+	expected := `"v\"a\"\\\"lue"`
+	if lit != expected {
+		t.Errorf("bad literal: got %s, expected %s", lit, expected)
 	}
 	if s.ErrorCount > 0 {
 		t.Error("scanning error")
@@ -472,5 +473,75 @@ func BenchmarkScan(b *testing.B) {
 				break
 			}
 		}
+	}
+}
+
+func TestScanValStringBacktickEscaping(t *testing.T) {
+	tests := []struct {
+		name     string
+		src      string
+		expected string
+		ok       bool
+	}{
+		{
+			name:     "plain value",
+			src:      "= `hello`",
+			expected: `"hello"`,
+			ok:       true,
+		},
+		{
+			name:     "value containing double-quote",
+			src:      "= `say \"hello\"`",
+			expected: `"say \"hello\""`,
+			ok:       true,
+		},
+		{
+			name:     "value containing backslash",
+			src:      "= `C:\\path`",
+			expected: `"C:\\path"`,
+			ok:       true,
+		},
+		{
+			name:     "value containing backslash immediately followed by double-quote",
+			src:      "= `C:\\\"path`",
+			expected: `"C:\\\"path"`,
+			ok:       true,
+		},
+		{
+			name:     "value containing multiple backslash-quote sequences",
+			src:      "= `\\\"foo\\\"bar`",
+			expected: `"\\\"foo\\\"bar"`,
+			ok:       true,
+		},
+		{
+			name: "unterminated backtick",
+			src:  "= `unterminated",
+			ok:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var s Scanner
+
+			f := fset.AddFile("src", fset.Base(), len(tt.src))
+
+			s.Init(f, []byte(tt.src), nil, 0)
+			s.Scan() // =
+			_, _, lit := s.Scan()
+
+			if tt.ok {
+				if s.ErrorCount > 0 {
+					t.Fatalf("unexpected scan error")
+				}
+				if lit != tt.expected {
+					t.Fatalf("got %q, want %q", lit, tt.expected)
+				}
+			} else {
+				if s.ErrorCount == 0 {
+					t.Fatalf("expected scan error, got literal %q", lit)
+				}
+			}
+		})
 	}
 }
