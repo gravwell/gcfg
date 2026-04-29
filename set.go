@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding"
 	"encoding/gob"
+	"errors"
 	"fmt"
 	"math/big"
 	"reflect"
@@ -13,6 +14,11 @@ import (
 
 	"github.com/gravwell/gcfg/types"
 	"gopkg.in/warnings.v0"
+)
+
+var (
+	ErrUservarStructShouldOnlyHaveOneField   = errors.New("uservar struct should only have one field besides Idxer")
+	ErrUservarStructShouldHaveSingleMapField = errors.New("uservar struct should have a single map[gcfg.Idx]*... field")
 )
 
 type tag struct {
@@ -193,15 +199,17 @@ func scanSetter(d interface{}, blank bool, val string, tt tag) error {
 	return types.ScanFully(d, val, 'v')
 }
 
-func idxFieldFold(v reflect.Value, name string) (reflect.Value, tag) {
+func idxFieldFold(v reflect.Value, name string) (reflect.Value, tag, error) {
 	fIdxer := v.FieldByName("CasedIdxer")
 	if !fIdxer.IsValid() {
 		if fIdxer = v.FieldByName("Idxer"); !fIdxer.IsValid() {
-			return fieldFold(v, name)
+			val, tag := fieldFold(v, name)
+			return val, tag, nil
 		}
 	}
 	if fIdxer.Type() != reflect.TypeOf(Idxer{}) && fIdxer.Type() != reflect.TypeOf(CasedIdxer{}) {
-		return fieldFold(v, name)
+		val, tag := fieldFold(v, name)
+		return val, tag, nil
 	}
 	var f reflect.Value
 	for i := 0; i < v.NumField(); i++ {
@@ -209,14 +217,14 @@ func idxFieldFold(v reflect.Value, name string) (reflect.Value, tag) {
 			continue
 		}
 		if (f != reflect.Value{}) {
-			panic("uservar struct should only have one field besides Idxer")
+			return reflect.Value{}, tag{}, ErrUservarStructShouldOnlyHaveOneField
 		}
 		f = v.Field(i)
 	}
 	if f.Type().Kind() != reflect.Map ||
 		f.Type().Key() != reflect.TypeOf(Idx{}) ||
 		f.Type().Elem().Kind() != reflect.Ptr {
-		panic("uservar struct should have a single map[gcfg.Idx]*... field")
+		return reflect.Value{}, tag{}, ErrUservarStructShouldHaveSingleMapField
 	}
 	if f.IsNil() {
 		f.Set(reflect.MakeMap(f.Type()))
@@ -234,14 +242,14 @@ func idxFieldFold(v reflect.Value, name string) (reflect.Value, tag) {
 			idx = idxer.Idx(name)
 		}
 	default:
-		panic(fmt.Sprintf("Unknown type on idxFieldFold: %T", idxer))
+		return reflect.Value{}, tag{}, fmt.Errorf("Unknown type on idxFieldFold: %T", idxer)
 	}
 	vv := f.MapIndex(reflect.ValueOf(idx))
 	if !vv.IsValid() {
 		f.SetMapIndex(reflect.ValueOf(idx), reflect.New(f.Type().Elem().Elem()))
 		vv = f.MapIndex(reflect.ValueOf(idx))
 	}
-	return vv.Elem(), tag{}
+	return vv.Elem(), tag{}, nil
 }
 
 func newValue(c *warnings.Collector, sect string, vCfg reflect.Value,
@@ -272,7 +280,7 @@ func set(c *warnings.Collector, cfg interface{}, sect, sub, name string,
 	//
 	vPCfg := reflect.ValueOf(cfg)
 	if vPCfg.Kind() != reflect.Ptr || vPCfg.Elem().Kind() != reflect.Struct {
-		panic(fmt.Errorf("config must be a pointer to a struct"))
+		return fmt.Errorf("config must be a pointer to a struct")
 	}
 	vCfg := vPCfg.Elem()
 	vSect, _ := fieldFold(vCfg, sect)
@@ -291,8 +299,8 @@ func set(c *warnings.Collector, cfg interface{}, sect, sub, name string,
 		if vst.Key().Kind() != reflect.String ||
 			vst.Elem().Kind() != reflect.Ptr ||
 			vst.Elem().Elem().Kind() != reflect.Struct {
-			panic(fmt.Errorf("map field for section must have string keys and "+
-				" pointer-to-struct values: section %q", sect))
+			return fmt.Errorf("map field for section must have string keys and "+
+				" pointer-to-struct values: section %q", sect)
 		}
 		if vSect.IsNil() {
 			vSect.Set(reflect.MakeMap(vst))
@@ -310,8 +318,8 @@ func set(c *warnings.Collector, cfg interface{}, sect, sub, name string,
 		}
 		vSect = pv.Elem()
 	} else if vSect.Kind() != reflect.Struct {
-		panic(fmt.Errorf("field for section must be a map or a struct: "+
-			"section %q", sect))
+		return fmt.Errorf("field for section must be a map or a struct: "+
+			"section %q", sect)
 	} else if sub != "" {
 		return c.Collect(extraData{loc: l, name: name})
 	}
@@ -320,7 +328,10 @@ func set(c *warnings.Collector, cfg interface{}, sect, sub, name string,
 	if name == "" {
 		return nil
 	}
-	vVar, t := idxFieldFold(vSect, name)
+	vVar, t, err := idxFieldFold(vSect, name)
+	if err != nil {
+		return c.Collect(extraData{loc: l, name: err.Error()})
+	}
 	if !vVar.IsValid() {
 		return c.Collect(extraData{loc: l, name: name})
 	}

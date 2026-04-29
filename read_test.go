@@ -437,29 +437,23 @@ func TestReadStringIntoExtraData(t *testing.T) {
 	}
 }
 
-var panictests = []struct {
-	id     string
-	config interface{}
-	gcfg   string
-}{
-	{"top", struct{}{}, "[section]\nname=value"},
-	{"section", &struct{ Section string }{}, "[section]\nname=value"},
-	{"subsection", &struct{ Section map[string]string }{}, "[section \"subsection\"]\nname=value"},
-}
-
-func testPanic(t *testing.T, id string, config interface{}, gcfg string) {
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("%s pass: got panic %v", id, r)
+func TestInvalidConfig(t *testing.T) {
+	tests := []struct {
+		id     string
+		config interface{}
+		gcfg   string
+	}{
+		{"top", struct{}{}, "[section]\nname=value"},
+		{"section", &struct{ Section string }{}, "[section]\nname=value"},
+		{"subsection", &struct{ Section map[string]string }{}, "[section \"subsection\"]\nname=value"},
+	}
+	for _, tt := range tests {
+		err := ReadStringInto(tt.config, tt.gcfg)
+		if err == nil {
+			t.Errorf("%s fail: got nil error, wanted error", tt.id)
+		} else if !testing.Short() {
+			t.Logf("%s pass: got error %v", tt.id, err)
 		}
-	}()
-	ReadStringInto(config, gcfg)
-	t.Errorf("%s fail: want panic", id)
-}
-
-func TestPanics(t *testing.T) {
-	for _, tt := range panictests {
-		testPanic(t, tt.id, tt.config, tt.gcfg)
 	}
 }
 

@@ -8,7 +8,6 @@
 //
 // Note that the API for the scanner package may change to accommodate new
 // features or implementation changes in gcfg.
-//
 package scanner
 
 import (
@@ -25,13 +24,11 @@ import (
 // encountered and a handler was installed, the handler is called with a
 // position and an error message. The position points to the beginning of
 // the offending token.
-//
 type ErrorHandler func(pos token.Position, msg string)
 
 // A Scanner holds the scanner's internal state while processing
 // a given text.  It can be allocated as part of another data
 // structure but must be initialized via Init before use.
-//
 type Scanner struct {
 	// immutable state
 	file *token.File  // source file handle
@@ -53,7 +50,6 @@ type Scanner struct {
 
 // Read the next Unicode char into s.ch.
 // s.ch < 0 means end-of-file.
-//
 func (s *Scanner) next() {
 	if s.rdOffset < len(s.src) {
 		s.offset = s.rdOffset
@@ -86,7 +82,6 @@ func (s *Scanner) next() {
 
 // A mode value is a set of flags (or 0).
 // They control scanner behavior.
-//
 type Mode uint
 
 const (
@@ -97,8 +92,8 @@ const (
 // scanner at the beginning of src. The scanner uses the file set file
 // for position information and it adds line information for each line.
 // It is ok to re-use the same file when re-scanning the same file as
-// line information which is already present is ignored. Init causes a
-// panic if the file size does not match the src size.
+// line information which is already present is ignored. Init returns an
+// error if the file size does not match the src size.
 //
 // Calls to Scan will invoke the error handler err if they encounter a
 // syntax error and err is not nil. Also, for each error encountered,
@@ -107,11 +102,10 @@ const (
 //
 // Note that Init may call err if there is an error in the first character
 // of the file.
-//
-func (s *Scanner) Init(file *token.File, src []byte, err ErrorHandler, mode Mode) {
+func (s *Scanner) Init(file *token.File, src []byte, err ErrorHandler, mode Mode) error {
 	// Explicitly initialize all fields since a scanner may be reused.
 	if file.Size() != len(src) {
-		panic(fmt.Sprintf("file size (%d) does not match src len (%d)", file.Size(), len(src)))
+		return fmt.Errorf("file size (%d) does not match src len (%d)", file.Size(), len(src))
 	}
 	s.file = file
 	s.dir, _ = filepath.Split(file.Name())
@@ -127,11 +121,15 @@ func (s *Scanner) Init(file *token.File, src []byte, err ErrorHandler, mode Mode
 	s.nextVal = false
 
 	s.next()
+
+	return nil
 }
 
 func (s *Scanner) error(offs int, msg string) {
 	if s.err != nil {
-		s.err(s.file.Position(s.file.Pos(offs)), msg)
+		p, _ := s.file.Pos(offs)
+		tPos, _ := s.file.Position(p)
+		s.err(tPos, msg)
 	}
 	s.ErrorCount++
 }
@@ -326,13 +324,15 @@ func (s *Scanner) skipWhitespace() {
 // Scan adds line information to the file added to the file
 // set with Init. Token positions are relative to that file
 // and thus relative to the file set.
-//
-func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
+func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string, err error) {
 scanAgain:
 	s.skipWhitespace()
 
 	// current token start
-	pos = s.file.Pos(s.offset)
+	pos, err = s.file.Pos(s.offset)
+	if err != nil {
+		return 0, 0, "", err
+	}
 
 	// determine token value
 	switch ch := s.ch; {
@@ -369,7 +369,8 @@ scanAgain:
 			tok = token.ASSIGN
 			s.nextVal = true
 		default:
-			s.error(s.file.Offset(pos), fmt.Sprintf("illegal character %#U", ch))
+			fOffs, _ := s.file.Offset(pos)
+			s.error(fOffs, fmt.Sprintf("illegal character %#U", ch))
 			tok = token.ILLEGAL
 			lit = string(ch)
 		}

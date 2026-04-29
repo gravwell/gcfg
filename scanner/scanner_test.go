@@ -135,7 +135,13 @@ func TestScan(t *testing.T) {
 
 	// verify scan
 	var s Scanner
-	s.Init(fset.AddFile("", fset.Base(), len(source)), source, eh, ScanComments)
+	f, err := fset.AddFile("", fset.Base(), len(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Init(f, source, eh, ScanComments); err != nil {
+		t.Fatal(err)
+	}
 	// epos is the expected position
 	epos := token.Position{
 		Filename: "",
@@ -144,7 +150,7 @@ func TestScan(t *testing.T) {
 		Column:   1,
 	}
 	for {
-		pos, tok, lit := s.Scan()
+		pos, tok, lit, _ := s.Scan()
 		if lit == "" {
 			// no literal value for non-literal tokens
 			lit = tok.String()
@@ -170,7 +176,7 @@ func TestScan(t *testing.T) {
 			if tok != etok {
 				t.Errorf("bad token for %q: got %q, expected %q", lit, tok, etok)
 			}
-			pos, tok, lit = s.Scan()
+			pos, tok, lit, _ = s.Scan()
 		}
 		epos.Offset += len(e.pre)
 		if tok != token.EOF {
@@ -186,7 +192,7 @@ func TestScan(t *testing.T) {
 			epos.Line++
 			epos.Offset++
 			epos.Column = 1
-			pos, tok, lit = s.Scan()
+			pos, tok, lit, _ = s.Scan()
 		}
 		checkPos(t, lit, pos, epos)
 		if tok != e.tok {
@@ -213,19 +219,19 @@ func TestScan(t *testing.T) {
 			break
 		}
 		if e.suf == "value" {
-			pos, tok, lit = s.Scan()
+			pos, tok, lit, _ = s.Scan()
 			if tok != token.STRING {
 				t.Errorf("bad token for %q: got %q, expected %q", lit, tok, token.STRING)
 			}
 		} else if strings.ContainsRune(e.suf, ';') || strings.ContainsRune(e.suf, '#') {
-			pos, tok, lit = s.Scan()
+			pos, tok, lit, _ = s.Scan()
 			if tok != token.COMMENT {
 				t.Errorf("bad token for %q: got %q, expected %q", lit, tok, token.COMMENT)
 			}
 		}
 		// skip EOLs
 		for i := 0; i < whitespace_linecount+newlineCount(e.suf); i++ {
-			pos, tok, lit = s.Scan()
+			pos, tok, lit, _ = s.Scan()
 			if tok != token.EOL {
 				t.Errorf("bad token for %q: got %q, expected %q", lit, tok, token.EOL)
 			}
@@ -239,11 +245,16 @@ func TestScan(t *testing.T) {
 func TestScanValStringEOF(t *testing.T) {
 	var s Scanner
 	src := "= value"
-	f := fset.AddFile("src", fset.Base(), len(src))
-	s.Init(f, []byte(src), nil, 0)
-	s.Scan()              // =
-	s.Scan()              // value
-	_, tok, _ := s.Scan() // EOF
+	f, err := fset.AddFile("src", fset.Base(), len(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Init(f, []byte(src), nil, 0); err != nil {
+		t.Fatal(err)
+	}
+	s.Scan()                  // =
+	s.Scan()                  // value
+	_, tok, _, _ := s.Scan() // EOF
 	if tok != token.EOF {
 		t.Errorf("bad token: got %s, expected %s", tok, token.EOF)
 	}
@@ -255,10 +266,15 @@ func TestScanValStringEOF(t *testing.T) {
 func TestScanValStringQuote(t *testing.T) {
 	var s Scanner
 	src := "= \"value\""
-	f := fset.AddFile("src", fset.Base(), len(src))
-	s.Init(f, []byte(src), nil, 0)
-	s.Scan()              // =
-	_, _, lit := s.Scan() // value
+	f, err := fset.AddFile("src", fset.Base(), len(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Init(f, []byte(src), nil, 0); err != nil {
+		t.Fatal(err)
+	}
+	s.Scan()                   // =
+	_, _, lit, _ := s.Scan() // value
 	if lit != `"value"` {
 		t.Errorf("bad literal: got %s, expected %s", lit, `"value"`)
 	}
@@ -270,10 +286,15 @@ func TestScanValStringQuote(t *testing.T) {
 func TestScanValStringBacktickWonkyQuotesDoubleEscaped(t *testing.T) {
 	var s Scanner
 	src := "= `v\"a\"\\\"lue`"
-	f := fset.AddFile("src", fset.Base(), len(src))
-	s.Init(f, []byte(src), nil, 0)
-	s.Scan()              // =
-	_, _, lit := s.Scan() // value
+	f, err := fset.AddFile("src", fset.Base(), len(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Init(f, []byte(src), nil, 0); err != nil {
+		t.Fatal(err)
+	}
+	s.Scan()                   // =
+	_, _, lit, _ := s.Scan() // value
 	if lit != `"v\"a\"\\"lue"` {
 		t.Errorf("bad literal: got %s, expected %s", lit, `"v\"a\"\\"lue"`)
 	}
@@ -285,10 +306,15 @@ func TestScanValStringBacktickWonkyQuotesDoubleEscaped(t *testing.T) {
 func TestScanValStringBacktickWonkyQuotes(t *testing.T) {
 	var s Scanner
 	src := "= `v\"a\"\"lue`"
-	f := fset.AddFile("src", fset.Base(), len(src))
-	s.Init(f, []byte(src), nil, 0)
-	s.Scan()              // =
-	_, _, lit := s.Scan() // value
+	f, err := fset.AddFile("src", fset.Base(), len(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Init(f, []byte(src), nil, 0); err != nil {
+		t.Fatal(err)
+	}
+	s.Scan()                   // =
+	_, _, lit, _ := s.Scan() // value
 	if lit != `"v\"a\"\"lue"` {
 		t.Errorf("bad literal: got %s, expected %s", lit, `"v\"a\"\"lue"`)
 	}
@@ -300,10 +326,15 @@ func TestScanValStringBacktickWonkyQuotes(t *testing.T) {
 func TestScanValStringBacktick(t *testing.T) {
 	var s Scanner
 	src := "= `value`"
-	f := fset.AddFile("src", fset.Base(), len(src))
-	s.Init(f, []byte(src), nil, 0)
-	s.Scan()              // =
-	_, _, lit := s.Scan() // value
+	f, err := fset.AddFile("src", fset.Base(), len(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Init(f, []byte(src), nil, 0); err != nil {
+		t.Fatal(err)
+	}
+	s.Scan()                   // =
+	_, _, lit, _ := s.Scan() // value
 	if lit != `"value"` {
 		t.Errorf("bad literal: got %s, expected %s", lit, `"value"`)
 	}
@@ -318,26 +349,36 @@ func TestInit(t *testing.T) {
 
 	// 1st init
 	src1 := "\nname = value"
-	f1 := fset.AddFile("src1", fset.Base(), len(src1))
-	s.Init(f1, []byte(src1), nil, 0)
+	f1, err := fset.AddFile("src1", fset.Base(), len(src1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Init(f1, []byte(src1), nil, 0); err != nil {
+		t.Fatal(err)
+	}
 	if f1.Size() != len(src1) {
 		t.Errorf("bad file size: got %d, expected %d", f1.Size(), len(src1))
 	}
-	s.Scan()              // \n
-	s.Scan()              // name
-	_, tok, _ := s.Scan() // =
+	s.Scan()                   // \n
+	s.Scan()                   // name
+	_, tok, _, _ := s.Scan() // =
 	if tok != token.ASSIGN {
 		t.Errorf("bad token: got %s, expected %s", tok, token.ASSIGN)
 	}
 
 	// 2nd init
 	src2 := "[section]"
-	f2 := fset.AddFile("src2", fset.Base(), len(src2))
-	s.Init(f2, []byte(src2), nil, 0)
+	f2, err := fset.AddFile("src2", fset.Base(), len(src2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Init(f2, []byte(src2), nil, 0); err != nil {
+		t.Fatal(err)
+	}
 	if f2.Size() != len(src2) {
 		t.Errorf("bad file size: got %d, expected %d", f2.Size(), len(src2))
 	}
-	_, tok, _ = s.Scan() // [
+	_, tok, _, _ = s.Scan() // [
 	if tok != token.LBRACK {
 		t.Errorf("bad token: got %s, expected %s", tok, token.LBRACK)
 	}
@@ -355,9 +396,15 @@ func TestStdErrorHandler(t *testing.T) {
 	eh := func(pos token.Position, msg string) { list.Add(pos, msg) }
 
 	var s Scanner
-	s.Init(fset.AddFile("File1", fset.Base(), len(src)), []byte(src), eh, 0)
+	f, err := fset.AddFile("File1", fset.Base(), len(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Init(f, []byte(src), eh, 0); err != nil {
+		t.Fatal(err)
+	}
 	for {
-		if _, tok, _ := s.Scan(); tok == token.EOF {
+		if _, tok, _, _ := s.Scan(); tok == token.EOF {
 			break
 		}
 	}
@@ -398,12 +445,18 @@ func checkError(t *testing.T, src string, tok token.Token, pos int, err string) 
 		h.msg = msg
 		h.pos = pos
 	}
-	s.Init(fset.AddFile("", fset.Base(), len(src)), []byte(src), eh, ScanComments)
-	if src[0] == '=' {
-		_, _, _ = s.Scan()
+	sf, ferr := fset.AddFile("", fset.Base(), len(src))
+	if ferr != nil {
+		t.Fatal(ferr)
 	}
-	_, tok0, _ := s.Scan()
-	_, tok1, _ := s.Scan()
+	if ferr := s.Init(sf, []byte(src), eh, ScanComments); ferr != nil {
+		t.Fatal(ferr)
+	}
+	if src[0] == '=' {
+		_, _, _, _ = s.Scan()
+	}
+	_, tok0, _, _ := s.Scan()
+	_, tok1, _, _ := s.Scan()
 	if tok0 != tok {
 		t.Errorf("%q: got %s, expected %s", src, tok0, tok)
 	}
@@ -461,13 +514,18 @@ func TestScanErrors(t *testing.T) {
 func BenchmarkScan(b *testing.B) {
 	b.StopTimer()
 	fset := token.NewFileSet()
-	file := fset.AddFile("", fset.Base(), len(source))
+	file, err := fset.AddFile("", fset.Base(), len(source))
+	if err != nil {
+		b.Fatal(err)
+	}
 	var s Scanner
 	b.StartTimer()
 	for i := b.N - 1; i >= 0; i-- {
-		s.Init(file, source, nil, ScanComments)
+		if err := s.Init(file, source, nil, ScanComments); err != nil {
+			b.Fatal(err)
+		}
 		for {
-			_, tok, _ := s.Scan()
+			_, tok, _, _ := s.Scan()
 			if tok == token.EOF {
 				break
 			}

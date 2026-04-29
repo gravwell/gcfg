@@ -2,9 +2,9 @@ package gcfg
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"strings"
 
@@ -13,12 +13,17 @@ import (
 	"gopkg.in/warnings.v0"
 )
 
+var (
+	ErrInvalidEscapeSequence = errors.New("invalid escape sequence")
+	ErrMissingEndQuote       = errors.New("missing end quote")
+)
+
 var unescape = map[rune]rune{'\\': '\\', '"': '"', 'n': '\n', 't': '\t'}
 var utf8Bom = []byte("\ufeff")
 
-// no error: invalid literals should be caught by scanner
-func unquote(s string) string {
+func unquote(s string) (string, error) {
 	u, q, esc := make([]rune, 0, len(s)), false, false
+
 	for _, c := range s {
 		if esc {
 			uc, ok := unescape[c]
@@ -30,7 +35,7 @@ func unquote(s string) string {
 				esc = false
 				continue
 			}
-			panic("invalid escape sequence")
+			return "", ErrInvalidEscapeSequence
 		}
 		switch c {
 		case '"':
@@ -41,13 +46,16 @@ func unquote(s string) string {
 			u = append(u, c)
 		}
 	}
+
 	if q {
-		panic("missing end quote")
+		return "", ErrMissingEndQuote
 	}
+
 	if esc {
-		panic("invalid escape sequence")
+		return "", ErrInvalidEscapeSequence
 	}
-	return string(u)
+
+	return string(u), nil
 }
 
 func readIntoPass(c *warnings.Collector, config interface{}, fset *token.FileSet,
@@ -55,9 +63,15 @@ func readIntoPass(c *warnings.Collector, config interface{}, fset *token.FileSet
 	//
 	var s scanner.Scanner
 	var errs scanner.ErrorList
-	s.Init(file, src, func(p token.Position, m string) { errs.Add(p, m) }, 0)
+	err := s.Init(file, src, func(p token.Position, m string) { errs.Add(p, m) }, 0)
+	if err != nil {
+		return fmt.Errorf("init: %w", err)
+	}
 	sect, sectsub := "", ""
-	pos, tok, lit := s.Scan()
+	pos, tok, lit, err := s.Scan()
+	if err != nil {
+		return err
+	}
 	errfn := func(msg string) error {
 		return fmt.Errorf("%s: %s", fset.Position(pos), msg)
 	}
@@ -71,9 +85,15 @@ func readIntoPass(c *warnings.Collector, config interface{}, fset *token.FileSet
 		case token.EOF:
 			return nil
 		case token.EOL, token.COMMENT:
-			pos, tok, lit = s.Scan()
+			pos, tok, lit, err = s.Scan()
+			if err != nil {
+				return err
+			}
 		case token.LBRACK:
-			pos, tok, lit = s.Scan()
+			pos, tok, lit, err = s.Scan()
+			if err != nil {
+				return err
+			}
 			if errs.Len() > 0 {
 				if err := c.Collect(errs.Err()); err != nil {
 					return err
@@ -85,20 +105,32 @@ func readIntoPass(c *warnings.Collector, config interface{}, fset *token.FileSet
 				}
 			}
 			sect, sectsub = lit, ""
-			pos, tok, lit = s.Scan()
+			pos, tok, lit, err = s.Scan()
+			if err != nil {
+				return err
+			}
 			if errs.Len() > 0 {
 				if err := c.Collect(errs.Err()); err != nil {
 					return err
 				}
 			}
 			if tok == token.STRING {
-				sectsub = unquote(lit)
+				var err error
+				sectsub, err = unquote(lit)
+				if err != nil {
+					if err := c.Collect(errfn(err.Error())); err != nil {
+						return err
+					}
+				}
 				if sectsub == "" {
 					if err := c.Collect(errfn("empty subsection name")); err != nil {
 						return err
 					}
 				}
-				pos, tok, lit = s.Scan()
+				pos, tok, lit, err = s.Scan()
+				if err != nil {
+					return err
+				}
 				if errs.Len() > 0 {
 					if err := c.Collect(errs.Err()); err != nil {
 						return err
@@ -115,7 +147,10 @@ func readIntoPass(c *warnings.Collector, config interface{}, fset *token.FileSet
 					return err
 				}
 			}
-			pos, tok, lit = s.Scan()
+			pos, tok, _, err = s.Scan()
+			if err != nil {
+				return err
+			}
 			if tok != token.EOL && tok != token.EOF && tok != token.COMMENT {
 				if err := c.Collect(errfn("expected EOL, EOF, or comment")); err != nil {
 					return err
@@ -140,7 +175,10 @@ func readIntoPass(c *warnings.Collector, config interface{}, fset *token.FileSet
 				}
 			}
 			n := lit
-			pos, tok, lit = s.Scan()
+			pos, tok, lit, err = s.Scan()
+			if err != nil {
+				return err
+			}
 			if errs.Len() > 0 {
 				return errs.Err()
 			}
@@ -151,7 +189,10 @@ func readIntoPass(c *warnings.Collector, config interface{}, fset *token.FileSet
 						return err
 					}
 				}
-				pos, tok, lit = s.Scan()
+				pos, tok, lit, err = s.Scan()
+				if err != nil {
+					return err
+				}
 				if errs.Len() > 0 {
 					if err := c.Collect(errs.Err()); err != nil {
 						return err
@@ -162,8 +203,19 @@ func readIntoPass(c *warnings.Collector, config interface{}, fset *token.FileSet
 						return err
 					}
 				}
-				v = unquote(lit)
-				pos, tok, lit = s.Scan()
+
+				var err error
+				v, err = unquote(lit)
+				if err != nil {
+					if err := c.Collect(errfn(err.Error())); err != nil {
+						return err
+					}
+				}
+
+				pos, tok, lit, err = s.Scan()
+				if err != nil {
+					return err
+				}
 				if errs.Len() > 0 {
 					if err := c.Collect(errs.Err()); err != nil {
 						return err
@@ -210,12 +262,15 @@ func readInto(config interface{}, fset *token.FileSet, file *token.File,
 // ReadInto reads gcfg formatted data from reader and sets the values into the
 // corresponding fields in config.
 func ReadInto(config interface{}, reader io.Reader) error {
-	src, err := ioutil.ReadAll(reader)
+	src, err := io.ReadAll(reader)
 	if err != nil {
 		return err
 	}
 	fset := token.NewFileSet()
-	file := fset.AddFile("", fset.Base(), len(src))
+	file, err := fset.AddFile("", fset.Base(), len(src))
+	if err != nil {
+		return err
+	}
 	return readInto(config, fset, file, src)
 }
 
@@ -231,13 +286,17 @@ func ReadStringInto(config interface{}, str string) error {
 //
 // For compatibility with files created on Windows, the ReadFileInto skips a
 // single leading UTF8 BOM sequence if it exists.
-func ReadFileInto(config interface{}, filename string) error {
+func ReadFileInto(config interface{}, filename string) (err error) {
 	f, err := os.Open(filename)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	src, err := ioutil.ReadAll(f)
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+	src, err := io.ReadAll(f)
 	if err != nil {
 		return err
 	}
@@ -246,7 +305,10 @@ func ReadFileInto(config interface{}, filename string) error {
 	src = skipLeadingUtf8Bom(src)
 
 	fset := token.NewFileSet()
-	file := fset.AddFile(filename, fset.Base(), len(src))
+	file, err := fset.AddFile(filename, fset.Base(), len(src))
+	if err != nil {
+		return err
+	}
 	return readInto(config, fset, file, src)
 }
 

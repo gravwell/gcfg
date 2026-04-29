@@ -6,6 +6,7 @@ package scanner_test
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/gravwell/gcfg/scanner"
 	"github.com/gravwell/gcfg/token"
@@ -19,12 +20,17 @@ color = blue ; Comment`)
 	// Initialize the scanner.
 	var s scanner.Scanner
 	fset := token.NewFileSet()                      // positions are relative to fset
-	file := fset.AddFile("", fset.Base(), len(src)) // register input "file"
-	s.Init(file, src, nil /* no error handler */, scanner.ScanComments)
+	file, err := fset.AddFile("", fset.Base(), len(src)) // register input "file"
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := s.Init(file, src, nil /* no error handler */, scanner.ScanComments); err != nil {
+		log.Fatal(err)
+	}
 
 	// Repeated calls to Scan yield the token sequence found in the input.
 	for {
-		pos, tok, lit := s.Scan()
+		pos, tok, lit, _ := s.Scan()
 		if tok == token.EOF {
 			break
 		}
