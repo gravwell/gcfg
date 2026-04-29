@@ -63,9 +63,15 @@ func readIntoPass(c *warnings.Collector, config interface{}, fset *token.FileSet
 	//
 	var s scanner.Scanner
 	var errs scanner.ErrorList
-	s.Init(file, src, func(p token.Position, m string) { errs.Add(p, m) }, 0)
+	err := s.Init(file, src, func(p token.Position, m string) { errs.Add(p, m) }, 0)
+	if err != nil {
+		return fmt.Errorf("init: %w", err)
+	}
 	sect, sectsub := "", ""
-	pos, tok, lit := s.Scan()
+	pos, tok, lit, err := s.Scan()
+	if err != nil {
+		return err
+	}
 	errfn := func(msg string) error {
 		return fmt.Errorf("%s: %s", fset.Position(pos), msg)
 	}
@@ -79,9 +85,15 @@ func readIntoPass(c *warnings.Collector, config interface{}, fset *token.FileSet
 		case token.EOF:
 			return nil
 		case token.EOL, token.COMMENT:
-			pos, tok, lit = s.Scan()
+			pos, tok, lit, err = s.Scan()
+			if err != nil {
+				return err
+			}
 		case token.LBRACK:
-			pos, tok, lit = s.Scan()
+			pos, tok, lit, err = s.Scan()
+			if err != nil {
+				return err
+			}
 			if errs.Len() > 0 {
 				if err := c.Collect(errs.Err()); err != nil {
 					return err
@@ -93,7 +105,10 @@ func readIntoPass(c *warnings.Collector, config interface{}, fset *token.FileSet
 				}
 			}
 			sect, sectsub = lit, ""
-			pos, tok, lit = s.Scan()
+			pos, tok, lit, err = s.Scan()
+			if err != nil {
+				return err
+			}
 			if errs.Len() > 0 {
 				if err := c.Collect(errs.Err()); err != nil {
 					return err
@@ -112,7 +127,10 @@ func readIntoPass(c *warnings.Collector, config interface{}, fset *token.FileSet
 						return err
 					}
 				}
-				pos, tok, lit = s.Scan()
+				pos, tok, lit, err = s.Scan()
+				if err != nil {
+					return err
+				}
 				if errs.Len() > 0 {
 					if err := c.Collect(errs.Err()); err != nil {
 						return err
@@ -129,7 +147,10 @@ func readIntoPass(c *warnings.Collector, config interface{}, fset *token.FileSet
 					return err
 				}
 			}
-			pos, tok, _ = s.Scan()
+			pos, tok, _, err = s.Scan()
+			if err != nil {
+				return err
+			}
 			if tok != token.EOL && tok != token.EOF && tok != token.COMMENT {
 				if err := c.Collect(errfn("expected EOL, EOF, or comment")); err != nil {
 					return err
@@ -154,7 +175,10 @@ func readIntoPass(c *warnings.Collector, config interface{}, fset *token.FileSet
 				}
 			}
 			n := lit
-			pos, tok, lit = s.Scan()
+			pos, tok, lit, err = s.Scan()
+			if err != nil {
+				return err
+			}
 			if errs.Len() > 0 {
 				return errs.Err()
 			}
@@ -165,7 +189,10 @@ func readIntoPass(c *warnings.Collector, config interface{}, fset *token.FileSet
 						return err
 					}
 				}
-				pos, tok, lit = s.Scan()
+				pos, tok, lit, err = s.Scan()
+				if err != nil {
+					return err
+				}
 				if errs.Len() > 0 {
 					if err := c.Collect(errs.Err()); err != nil {
 						return err
@@ -185,7 +212,10 @@ func readIntoPass(c *warnings.Collector, config interface{}, fset *token.FileSet
 					}
 				}
 
-				pos, tok, lit = s.Scan()
+				pos, tok, lit, err = s.Scan()
+				if err != nil {
+					return err
+				}
 				if errs.Len() > 0 {
 					if err := c.Collect(errs.Err()); err != nil {
 						return err
@@ -237,7 +267,10 @@ func ReadInto(config interface{}, reader io.Reader) error {
 		return err
 	}
 	fset := token.NewFileSet()
-	file := fset.AddFile("", fset.Base(), len(src))
+	file, err := fset.AddFile("", fset.Base(), len(src))
+	if err != nil {
+		return err
+	}
 	return readInto(config, fset, file, src)
 }
 
@@ -272,7 +305,10 @@ func ReadFileInto(config interface{}, filename string) (err error) {
 	src = skipLeadingUtf8Bom(src)
 
 	fset := token.NewFileSet()
-	file := fset.AddFile(filename, fset.Base(), len(src))
+	file, err := fset.AddFile(filename, fset.Base(), len(src))
+	if err != nil {
+		return err
+	}
 	return readInto(config, fset, file, src)
 }
 

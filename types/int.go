@@ -1,8 +1,13 @@
 package types
 
 import (
+	"errors"
 	"fmt"
 	"strings"
+)
+
+var (
+	ErrUnsupportedMode = errors.New("unsupported mode")
 )
 
 // An IntMode is a mode for parsing integer values, representing a set of
@@ -80,7 +85,7 @@ func ParseInt(intptr interface{}, val string, mode IntMode) error {
 		}
 	}
 	if verb == 0 {
-		panic("unsupported mode")
+		return ErrUnsupportedMode
 	}
 	return ScanFully(intptr, val, verb)
 }
