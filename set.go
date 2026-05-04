@@ -294,6 +294,10 @@ func set(c *warnings.Collector, cfg interface{}, sect, sub, name string,
 	vSect, st := fieldFold(vCfg, sect)
 	l := loc{section: sect}
 	if !vSect.IsValid() {
+		// only collect errors during the first passthrough
+		if subsectPass {
+			return nil
+		}
 		err := extraData{loc: l, name: name}
 		return st, c.Collect(err)
 	}
